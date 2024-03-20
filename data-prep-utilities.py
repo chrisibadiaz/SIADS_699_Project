@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 import os
 from sklearn.model_selection import train_test_split
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import SimpleImputer, IterativeImputer
 
 
 # helper function modified from code in contest creator starter notebook
@@ -207,3 +209,79 @@ def cat_to_dummies(X_train, other_dfs = [], max_categories=5):
                 
     
     return X_train_combined, *other_combined
+
+
+
+def handle_missing_data(X_train_in, other_dfs_in=[], max_missing_feature=0.5, max_missing_instance=0.9, missing_indicator_threshold=None, imputer=None, string_imputer=None):
+    # imputers from: (None, sklearn.impute.SimpleImputer, sklearn.impute.IterativeImputer)
+    # if no string_imputer provided, imputer should be able to handle both numeric and string
+    
+    # first, remove any features which exceed the max_missing threshold
+    features_to_keep = X_train_in.isna().sum()/len(X_train_in)<max_missing_feature
+    X_train=X_train_in.loc[:, features_to_keep]
+    
+    # for features with missing counts above this threshold, add a dummy column indicating which entries were imputed
+    if missing_indicator_threshold:
+        dummies = X_train.isna()
+        dummies = dummies.loc[:, dummies.sum()/len(dummies) > missing_indicator_threshold]
+        dummy_cols = dummies.columns # to use for other dfs
+        X_train = pd.concat([X_train, dummies.add_prefix("ismissing_").astype(int)], axis=1) 
+    
+    # remove any instances which have insufficient data
+    instances_to_keep = X_train.isna().sum(1)/len(X_train.columns)< max_missing_instance
+    X_train = X_train.loc[instances_to_keep,:]
+    
+    # finally, impute features if required
+    if imputer:
+        if string_imputer:
+            # impute strings seperately
+            X_strs = X_train.select_dtypes(include=['object', 'category'])
+            if len(X_strs.columns) > 0:
+                X_strs = pd.DataFrame(string_imputer.fit_transform(X_strs), index=X_strs.index, columns=X_strs.columns)
+            X_nums = X_train.select_dtypes(exclude=['object', 'category'])
+            if len(X_nums.columns) > 0:
+                X_nums = pd.DataFrame(imputer.fit_transform(X_nums), index=X_nums.index, columns=X_nums.columns)
+
+            X_train = pd.concat([X_strs, X_nums], axis=1)
+        
+        else:
+            # imputer can handle strings, or you think there will be none
+            X_train = pd.DataFrame(imputer.fit_transform(X_train), index=X_train.index, columns=X_train.columns)
+        
+        
+    # now, repeat for the other dfs using the transforms tuned on X_train
+    other_dfs=[]
+    if other_dfs_in:
+        for df_in in other_dfs_in:
+            # keep only features kept for X_train.
+            df = df_in.loc[:, features_to_keep]
+            
+            # add missing indicators if required
+            if missing_indicator_threshold:
+                dummies = df[dummy_cols].isna() # dummy_cols from X_train
+                df = pd.concat([df, dummies.add_prefix("ismissing_").astype(int)], axis=1)
+                
+            # keep only instances in this df with sufficient data
+            instances_to_keep = df.isna().sum(1)/len(df.columns)< max_missing_instance
+            df = df.loc[instances_to_keep,:]
+            
+            # impute using the imputers already fit to X_train
+            if imputer:
+                if string_imputer:
+                    # impute strings separately
+                    df_strs = df.select_dtypes(include=['object', 'category'])
+                    if len(df_strs.columns) > 0:
+                        df_strs = pd.DataFrame(string_imputer.transform(df_strs), index=df_strs.index, columns=df_strs.columns)
+                    # impute numbers:
+                    df_nums = df.select_dtypes(exclude=['object', 'category'])
+                    if len(df_nums.columns) > 0:
+                        df_nums = pd.DataFrame(imputer.transform(df_nums), index=df_nums.index, columns=df_nums.columns)
+                    df = pd.concat([df_strs, df_nums], axis=1)
+
+                else:
+                    # imputer can handle strings, or you think there will be none
+                    df = pd.DataFrame(imputer.transform(df), index=df.index, columns=df.columns)
+                    
+            other_dfs.append(df)
+            
+    return X_train, *other_dfs
