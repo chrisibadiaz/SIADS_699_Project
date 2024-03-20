@@ -6,6 +6,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import SimpleImputer, IterativeImputer
 
+import copy
+
 
 # helper function modified from code in contest creator starter notebook
 def set_table_dtypes(df: pl.DataFrame) -> pl.DataFrame:
