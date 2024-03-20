@@ -125,163 +125,176 @@ def convert_strings(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+class split:
+    def __init__(self, name):
+        self.name = name
+        self.base = None
+        self.X = None
+        self.y = None
+        
+class data_splits:
+    
+    def __init__(self):
+        self.train = None
+        self.val = None
+        self.test = None
+        self.submit =None
+        
+    def __iter__(self):
+        for attr in ["train", "val", "test", "submit"]:
+            val = self.__dict__[attr]
+            yield attr, val
+    
+    def add_split(self, split):
+        match split.name:
+            case "train":
+                self.train = split
+            case "val":
+                self.val = split
+            case "test":
+                self.test = split
+            case "submit":
+                self.submit = split
+                
+                
 # modified from code in contest creator starter notebook
-def from_polars_to_pandas(case_ids: pl.DataFrame, df, is_submit=False) -> pl.DataFrame:
+def create_pandas_split(case_ids: pl.DataFrame, df, name):
     cols_pred = []
     for col in df.columns:
         if col[-1].isupper() and col[:-1].islower():
             cols_pred.append(col)
-    base_cols = ["case_id", "WEEK_NUM"] if is_submit else ["case_id", "WEEK_NUM", "target"]
-    return (
-        df.filter(pl.col("case_id").is_in(case_ids))[base_cols].to_pandas(),
-        df.filter(pl.col("case_id").is_in(case_ids))[cols_pred].to_pandas(),
-        None if is_submit else df.filter(pl.col("case_id").is_in(case_ids))["target"].to_pandas()
-    )
+    base_cols = ["case_id", "WEEK_NUM"] if (name == 'submit') else ["case_id", "WEEK_NUM", "target"]
+    
+    new_split = split(name)
+    new_split.base = df.filter(pl.col("case_id").is_in(case_ids))[base_cols].to_pandas()
+    new_split.X = convert_strings(df.filter(pl.col("case_id").is_in(case_ids))[cols_pred].to_pandas())
+    
+    if name != 'submit':
+        new_split.y = df.filter(pl.col("case_id").is_in(case_ids))["target"].to_pandas()
+    return new_split
 
 
 
 def train_val_test_split(train_df, submit_df, train_split=0.9, val_split=0.5):
-    # the following code is mostly copied from contest creator starter notebook
-    # although it has been changed to facilitate functional programming
+    # the following code is altered from code in contest creator starter notebook
     case_ids = train_df["case_id"].unique().shuffle(seed=1)
     case_ids_train, case_ids_test = train_test_split(case_ids, train_size=train_split, random_state=1)
     case_ids_val, case_ids_test = train_test_split(case_ids_test, train_size=val_split, random_state=1)
     case_ids_submit = submit_df["case_id"].unique()
     
-    base_train, X_train, y_train = from_polars_to_pandas(case_ids_train, train_df)
-    base_val, X_val, y_val = from_polars_to_pandas(case_ids_val, train_df)
-    base_test, X_test, y_test = from_polars_to_pandas(case_ids_test, train_df)
-    base_submit, X_submit, y_submit = from_polars_to_pandas(case_ids_submit, submit_df, is_submit=True)
+    data = data_splits()
+    data.add_split(create_pandas_split(case_ids_train, train_df, "train"))
+    data.add_split(create_pandas_split(case_ids_val, train_df, "val"))
+    data.add_split(create_pandas_split(case_ids_test, train_df, "test"))
+    data.add_split(create_pandas_split(case_ids_submit, submit_df, "submit"))
     
-    for df in [X_train, X_val, X_test, X_submit]:
-        df = convert_strings(df)
+    return data
+
+
+
+def cat_to_dummies(data, max_categories=5):
     
-    return (
-        (base_train, X_train, y_train), 
-        (base_val, X_val, y_val), 
-        (base_test, X_test, y_test),
-        (base_submit, X_submit, y_submit)
-    )
-
-
-
-def cat_to_dummies(X_train, other_dfs = [], max_categories=5):
-    # select categorical columns
-    cols_cat = X_train.select_dtypes(include="category").columns
-    cols_non_cat = X_train.select_dtypes(exclude="category").columns
-    X_train_cat = X_train[cols_cat]
+    data_with_dummies = copy.deepcopy(data)
+    top_n = {} # will save the top categories for each categorical column
+    for split_name, split_data in data_with_dummies: 
+        X = split_data.X
+        is_train = (split_name=="train")
         
-    # condense least common categories to "Unknown"
-    top_n = {}
-    for col in cols_cat:
-        categories = X_train_cat[col].dtype.categories
-        if len(categories) > max_categories:
-            # find most common in train set
-            top_n[col] = X_train_cat[col].value_counts().index[:max_categories]
-            X_train_cat.loc[:,col] = X_train_cat.loc[:,col].apply(lambda x: x if x in top_n[col] else "Unknown").astype(X_train_cat.loc[:,col].dtype)
-        else:
-            top_n[col] = categories
-    
-    # create dummies
-    X_train_dummies = pd.get_dummies(X_train_cat.astype("object"), dummy_na=True)
-    
-    # join to non categorical
-    X_train_non_cat = X_train[cols_non_cat]
-    X_train_combined = pd.concat([X_train_dummies, X_train_non_cat], axis=1)
-    
-    
-    # repeat for other dfs, using the same categories
-    other_combined = []
-    if other_dfs:
-        for df in other_dfs:
-            df_cat = df[cols_cat]
+        # select categorical columns
+        if is_train:
+            cols_cat = X.select_dtypes(include="category").columns
+            cols_non_cat = X.select_dtypes(exclude="category").columns
+        X_cat = X[cols_cat]
+
+        # condense least common categories to "Unknown"
+        for col in cols_cat:
+            if is_train:
+                categories = X_cat[col].dtype.categories
+                if len(categories) > max_categories:
+                    # find most common in train set
+                    top_n[col] = X_cat[col].value_counts().index[:max_categories]
+                else:
+                    top_n[col] = categories
             
-            # reduce categories using top_n from X_train
-            for col in cols_cat:
-                df_cat.loc[:,col] = df_cat.loc[:,col].apply(lambda x: x if x in top_n[col] else "Unknown").astype(df_cat.loc[:,col].dtype)
-                
-            # create dummies
-            df_dummies = pd.get_dummies(df_cat.astype("object"), dummy_na=True)
-            
-            # join to non categorical
-            df_non_cat = df[cols_non_cat]
-            other_combined.append(pd.concat([df_dummies, df_non_cat], axis=1))
-                
-    
-    return X_train_combined, *other_combined
+            X_cat.loc[:,col] = X_cat.loc[:,col].apply(lambda x: x if x in top_n[col] else "Unknown").astype(X_cat.loc[:,col].dtype)
+
+        # create dummies
+        X_dummies = pd.get_dummies(X_cat.astype("object"), dummy_na=True)
+
+        # join to non categorical
+        X_non_cat = X[cols_non_cat]
+        X_combined = pd.concat([X_dummies, X_non_cat], axis=1)
+        
+        match split_name:
+            case "train":
+                data_with_dummies.train.X = X_combined
+            case "val":
+                data_with_dummies.val.X = X_combined
+            case "test":
+                data_with_dummies.test.X = X_combined
+            case "submit":
+                data_with_dummies.submit.X = X_combined
+
+    return data_with_dummies
 
 
 
-def handle_missing_data(X_train_in, other_dfs_in=[], max_missing_feature=0.5, max_missing_instance=0.9, missing_indicator_threshold=None, imputer=None, string_imputer=None):
+def handle_missing_data(data, max_missing_feature=0.5, max_missing_instance=0.9, missing_indicator_threshold=None, imputer=None, string_imputer=None):
     # imputers from: (None, sklearn.impute.SimpleImputer, sklearn.impute.IterativeImputer)
     # if no string_imputer provided, imputer should be able to handle both numeric and string
-    
-    # first, remove any features which exceed the max_missing threshold
-    features_to_keep = X_train_in.isna().sum()/len(X_train_in)<max_missing_feature
-    X_train=X_train_in.loc[:, features_to_keep]
-    
-    # for features with missing counts above this threshold, add a dummy column indicating which entries were imputed
-    if missing_indicator_threshold:
-        dummies = X_train.isna()
-        dummies = dummies.loc[:, dummies.sum()/len(dummies) > missing_indicator_threshold]
-        dummy_cols = dummies.columns # to use for other dfs
-        X_train = pd.concat([X_train, dummies.add_prefix("ismissing_").astype(int)], axis=1) 
-    
-    # remove any instances which have insufficient data
-    instances_to_keep = X_train.isna().sum(1)/len(X_train.columns)< max_missing_instance
-    X_train = X_train.loc[instances_to_keep,:]
-    
-    # finally, impute features if required
-    if imputer:
-        if string_imputer:
-            # impute strings seperately
-            X_strs = X_train.select_dtypes(include=['object', 'category'])
-            if len(X_strs.columns) > 0:
-                X_strs = pd.DataFrame(string_imputer.fit_transform(X_strs), index=X_strs.index, columns=X_strs.columns).astype(X_strs.dtypes.to_dict())
-            X_nums = X_train.select_dtypes(exclude=['object', 'category'])
-            if len(X_nums.columns) > 0:
-                X_nums = pd.DataFrame(imputer.fit_transform(X_nums), index=X_nums.index, columns=X_nums.columns).astype(X_nums.dtypes.to_dict())
+    data_no_na = copy.deepcopy(data)
+    for split_name, split_data in data_no_na:
+        X = split_data.X
+        is_train = (split_name=="train")
+        
+        # first, remove any features which exceed the max_missing threshold
+        if is_train:
+            features_to_keep = X.isna().sum()/len(X)<max_missing_feature
+        X=X.loc[:, features_to_keep]
 
-            X_train = pd.concat([X_strs, X_nums], axis=1)
-        
-        else:
-            # imputer can handle strings, or you think there will be none
-            X_train = pd.DataFrame(imputer.fit_transform(X_train), index=X_train.index, columns=X_train.columns).astype(X_train.dtypes.to_dict())
-        
-        
-    # now, repeat for the other dfs using the transforms tuned on X_train
-    other_dfs=[]
-    if other_dfs_in:
-        for df_in in other_dfs_in:
-            # keep only features kept for X_train.
-            df = df_in.loc[:, features_to_keep]
-            
-            # add missing indicators if required
-            if missing_indicator_threshold:
-                dummies = df[dummy_cols].isna() # dummy_cols from X_train
-                df = pd.concat([df, dummies.add_prefix("ismissing_").astype(int)], axis=1)
-                
-            # keep only instances in this df with sufficient data
-            instances_to_keep = df.isna().sum(1)/len(df.columns)< max_missing_instance
-            df = df.loc[instances_to_keep,:]
-            
-            # impute using the imputers already fit to X_train
-            if imputer:
-                if string_imputer:
-                    # impute strings separately
-                    df_strs = df.select_dtypes(include=['object', 'category'])
-                    if len(df_strs.columns) > 0:
-                        df_strs = pd.DataFrame(string_imputer.transform(df_strs), index=df_strs.index, columns=df_strs.columns).astype(df_strs.dtypes.to_dict())
-                    # impute numbers:
-                    df_nums = df.select_dtypes(exclude=['object', 'category'])
-                    if len(df_nums.columns) > 0:
-                        df_nums = pd.DataFrame(imputer.transform(df_nums), index=df_nums.index, columns=df_nums.columns).astype(df_nums.dtypes.to_dict())
-                    df = pd.concat([df_strs, df_nums], axis=1)
+        # for features with missing counts above this threshold, add a dummy column indicating which entries were imputed
+        if missing_indicator_threshold:
+            if is_train:
+                features_to_indicate = X.isna().sum()/len(X) > missing_indicator_threshold
+                dummy_cols = X.loc[:, features_to_indicate].columns
+            dummies = X[dummy_cols].isna()
+            X = pd.concat([X, dummies.add_prefix("ismissing_").astype(int)], axis=1) 
 
-                else:
-                    # imputer can handle strings, or you think there will be none
-                    df = pd.DataFrame(imputer.transform(df), index=df.index, columns=df.columns).astype(df.dtypes.to_dict())
-                    
-            other_dfs.append(df)
-            
-    return X_train, *other_dfs
+        # remove any instances (rows) which have insufficient data
+        instances_to_keep = X.isna().sum(1)/len(X.columns)< max_missing_instance
+        X = X.loc[instances_to_keep,:]
+
+        # finally, impute features if required
+        if imputer:
+            if string_imputer:
+                # impute strings seperately
+                X_strs = X.select_dtypes(include=['object', 'category'])
+                if len(X_strs.columns) > 0:
+                    if is_train:
+                        string_imputer.fit(X_strs)
+                    X_strs = pd.DataFrame(string_imputer.transform(X_strs), index=X_strs.index, columns=X_strs.columns).astype(X_strs.dtypes.to_dict())
+                X_nums = X.select_dtypes(exclude=['object', 'category'])
+                if len(X_nums.columns) > 0:
+                    if is_train:
+                        imputer.fit(X_nums)
+                    X_nums = pd.DataFrame(imputer.transform(X_nums), index=X_nums.index, columns=X_nums.columns).astype(X_nums.dtypes.to_dict())
+
+                X = pd.concat([X_strs, X_nums], axis=1)
+
+            else:
+                # imputer can handle strings, or you think there will be none
+                if is_train:
+                    imputer.fit(X)
+                X = pd.DataFrame(imputer.transform(X), index=X.index, columns=X.columns).astype(X.dtypes.to_dict())
+
+        match split_name:
+            case "train":
+                data_no_na.train.X = X
+            case "val":
+                data_no_na.val.X = X
+            case "test":
+                data_no_na.test.X = X
+            case "submit":
+                data_no_na.submit.X = X
+    
+    return data_no_na
