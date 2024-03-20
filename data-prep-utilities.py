@@ -237,16 +237,16 @@ def handle_missing_data(X_train_in, other_dfs_in=[], max_missing_feature=0.5, ma
             # impute strings seperately
             X_strs = X_train.select_dtypes(include=['object', 'category'])
             if len(X_strs.columns) > 0:
-                X_strs = pd.DataFrame(string_imputer.fit_transform(X_strs), index=X_strs.index, columns=X_strs.columns)
+                X_strs = pd.DataFrame(string_imputer.fit_transform(X_strs), index=X_strs.index, columns=X_strs.columns).astype(X_strs.dtypes.to_dict())
             X_nums = X_train.select_dtypes(exclude=['object', 'category'])
             if len(X_nums.columns) > 0:
-                X_nums = pd.DataFrame(imputer.fit_transform(X_nums), index=X_nums.index, columns=X_nums.columns)
+                X_nums = pd.DataFrame(imputer.fit_transform(X_nums), index=X_nums.index, columns=X_nums.columns).astype(X_nums.dtypes.to_dict())
 
             X_train = pd.concat([X_strs, X_nums], axis=1)
         
         else:
             # imputer can handle strings, or you think there will be none
-            X_train = pd.DataFrame(imputer.fit_transform(X_train), index=X_train.index, columns=X_train.columns)
+            X_train = pd.DataFrame(imputer.fit_transform(X_train), index=X_train.index, columns=X_train.columns).astype(X_train.dtypes.to_dict())
         
         
     # now, repeat for the other dfs using the transforms tuned on X_train
@@ -271,16 +271,16 @@ def handle_missing_data(X_train_in, other_dfs_in=[], max_missing_feature=0.5, ma
                     # impute strings separately
                     df_strs = df.select_dtypes(include=['object', 'category'])
                     if len(df_strs.columns) > 0:
-                        df_strs = pd.DataFrame(string_imputer.transform(df_strs), index=df_strs.index, columns=df_strs.columns)
+                        df_strs = pd.DataFrame(string_imputer.transform(df_strs), index=df_strs.index, columns=df_strs.columns).astype(df_strs.dtypes.to_dict())
                     # impute numbers:
                     df_nums = df.select_dtypes(exclude=['object', 'category'])
                     if len(df_nums.columns) > 0:
-                        df_nums = pd.DataFrame(imputer.transform(df_nums), index=df_nums.index, columns=df_nums.columns)
+                        df_nums = pd.DataFrame(imputer.transform(df_nums), index=df_nums.index, columns=df_nums.columns).astype(df_nums.dtypes.to_dict())
                     df = pd.concat([df_strs, df_nums], axis=1)
 
                 else:
                     # imputer can handle strings, or you think there will be none
-                    df = pd.DataFrame(imputer.transform(df), index=df.index, columns=df.columns)
+                    df = pd.DataFrame(imputer.transform(df), index=df.index, columns=df.columns).astype(df.dtypes.to_dict())
                     
             other_dfs.append(df)
             
