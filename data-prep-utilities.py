@@ -300,3 +300,25 @@ def handle_missing_data(data, max_missing_feature=0.5, max_missing_instance=0.9,
                 data_no_na.submit.X = X
     
     return data_no_na
+
+
+
+def data_prep_pipeline(dataset, train_split=0.6, max_missing_feature=0.5, max_missing_instance=0.9, missing_indicator_theshold=None, imputer=None, string_imputer=None, max_categories=5, oversampler=None):
+    print("loading data")
+    train_df, submission_df = load_all_dfs(dataset)
+    print("creating splits")
+    data = train_val_test_split(train_df, submission_df, train_split)
+    print("handling missing data")
+    data = handle_missing_data(data,
+                               max_missing_feature = max_missing_feature, 
+                               max_missing_instance = max_missing_instance,
+                               missing_indicator_threshold=missing_indicator_threshold,
+                               imputer=imputer,
+                               string_imputer = string_imputer
+                              )
+    print("creating dummies for categorical features")
+    data = cat_to_dummies(data, max_categories=max_categories)
+    print("fixing data imbalance")
+    data.train.X, data.train.y = oversampler.fit_resample(data.train.X, data.train.y)
+    print("done")
+    return data
