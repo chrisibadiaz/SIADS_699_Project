@@ -303,11 +303,11 @@ def handle_missing_data(data, max_missing_feature=0.5, max_missing_instance=0.9,
 
 
 
-def data_prep_pipeline(dataset, train_split=0.6, max_missing_feature=0.5, max_missing_instance=0.9, missing_indicator_theshold=None, imputer=None, string_imputer=None, max_categories=5, oversampler=None):
+def data_prep_pipeline(dataset, train_split=0.6, val_split=0.5, max_missing_feature=0.5, max_missing_instance=0.9, missing_indicator_threshold=None, imputer=None, string_imputer=None, max_categories=5, oversampler=None):
     print("loading data")
     train_df, submission_df = load_all_dfs(dataset)
     print("creating splits")
-    data = train_val_test_split(train_df, submission_df, train_split)
+    data = train_val_test_split(train_df, submission_df, train_split, val_split)
     print("handling missing data")
     data = handle_missing_data(data,
                                max_missing_feature = max_missing_feature, 
